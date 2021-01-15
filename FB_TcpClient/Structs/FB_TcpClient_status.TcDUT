@@ -1,0 +1,24 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4018.5">
+  <DUT Name="FB_TcpClient_status" Id="{16787f7e-cd1c-46ff-a616-07bfd41590ce}">
+    <Declaration><![CDATA[TYPE FB_TcpClient_status :
+STRUCT
+	//Wird TRUE wenn der Baustein arbeitet
+	busy : BOOL;
+	//Beinhaltet den Text der empfangen wurde
+	message : STRING(255);
+	//Sind eine oder mehrere Messages im messagePuffer wird die Variable True
+	neueMessage : BOOL;
+	//Ein Fehler ist aufgetreten!
+	error : BOOL;
+	//ErrorID
+	errorId : UDINT;
+	//Error Meldung
+	errorMeldung : STRING(255);
+	//Wird TRUE wenn eine Verbindung besteht
+	verbunden : BOOL;
+END_STRUCT
+END_TYPE
+]]></Declaration>
+  </DUT>
+</TcPlcObject>

@@ -1,0 +1,284 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4018.5">
+  <POU Name="FB_TcpClient" Id="{6401d917-f10d-4527-97ac-8c542c32d114}" SpecialFunc="None">
+    <Declaration><![CDATA[FUNCTION_BLOCK FB_TcpClient
+
+VAR_INPUT
+	//CMD
+	cmd : FB_TcpClient_cmd;
+	//Die IP-Adresse des Empfängers
+	zielAdresse : STRING(15);
+	//Der Port des Empfängers zu dem gesendet werden soll
+	zielPort : UINT;
+	//Ist die Variable TRUE wird ein Fehler gemeldet, wenn der Zielserver die Verbindung abbricht
+	enableVerbindungsverlustFehler : BOOL;
+END_VAR
+
+VAR_OUTPUT
+	//Status
+	status : FB_TcpClient_status;
+END_VAR
+	
+VAR
+	_state : FB_TcpClient_State := FB_TcpClient_State.GETRENNT; //Initialisieren
+	_empfangsPuffer		: ARRAY[0..PUFFER_GROESSE-1] OF BYTE;
+	_messagePuffer : ARRAY[0..MESSAGE_PUFFER_GROESSE-1] OF STRING(255);
+	//Index zum eintragen der Messages in den messagePuffer
+	_indexMessageIn : UINT := 0;
+	//Index zum austragen der Messages aus den messagePuffer
+	_indexMessageOut : UINT := 0;
+	
+	//Laufvariable für for-Schleifen
+	_n : INT;
+	//FB's
+	_socketVerbindung 	: Tc2_TcpIp.FB_SocketConnect;
+	_socketSenden 		: Tc2_TcpIp.FB_SocketSend;
+	_socketEmpfangen 	: Tc2_TcpIp.FB_SocketReceive;
+	_socketTrennen 		: Tc2_TcpIp.FB_SocketClose;
+END_VAR
+
+VAR CONSTANT
+	PUFFER_GROESSE : UINT := 256;
+	MESSAGE_PUFFER_GROESSE : UINT := 50;
+END_VAR
+
+]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[(*
+Beschreibung:
+Dieser FB baut eine Socketverbindung mittels des Beckhoff eigenen Sublements "TF6310" auf.
+Dabei handelt es sich um einen TCP/IP-Server, der TCP managed.
+Via TCP können Messages an einen Ziel-Server gesendet werden. 
+Messages von dem Ziel-Server können dann empfangen werden.
+Es handelt sich also um einen TCP-Client.
+
+Autor: P. Hahn
+Datum: 2016/SEP/17
+Version: 1.0.0.0
+
+Benötigte Bibliotheken:
+	-> Tc2_TcpIp
+	-> Tc2_Utilities
+	
+Benötigte Lizensen:
+	-> TF6310
+
+Weiteres:
+Außerdem wird das Sublement "TF6310-TCP-IP.exe" benötigt.
+Dahinter verbirgt sich ein Server, der die Kopplung zu den verwendeten Sockets vornimmt.
+Der Server kann von der Beckhoff Seite herunter geladen werden.
+Danach sollte der Server auch gestartet werden. Die exe ist zu finden unter "C:\TwinCAT\Functions\TF6310-TCP-IP\Win32\Server"
+*)
+
+ 
+CASE _state OF
+	
+	//Es besteht keine Verbindung
+	FB_TcpClient_State.GETRENNT:
+		IF cmd.verbinden THEN
+			cmd.verbinden := FALSE;
+			status.busy := TRUE;
+			_socketVerbindung.sRemoteHost := zielAdresse;
+			_socketVerbindung.nRemotePort := zielPort;
+			_socketVerbindung.bExecute := TRUE;
+			_state := FB_TcpClient_State.VERBINDEN;
+		ELSIF cmd.messageAuslesen THEN
+			cmd.messageAuslesen := FALSE;
+			status.busy := TRUE;
+			_state := FB_TcpClient_State.MESSAGE_AUSLESEN;
+		ELSIF cmd.trennen THEN
+			cmd.trennen := FALSE;
+		END_IF
+		
+		
+	//Es wird versucht eine Verbindung herzustellen	
+	FB_TcpClient_State.VERBINDEN:
+		IF NOT _socketVerbindung.bBusy AND NOT _socketVerbindung.bError THEN
+			_socketVerbindung.bExecute := FALSE;
+			status.busy := FALSE;
+			status.verbunden := TRUE;
+			_state := FB_TcpClient_State.VERBUNDEN;
+		ELSIF _socketVerbindung.bError THEN
+			status.errorId := _socketVerbindung.nErrId;
+			status.errorMeldung := 'Fehler beim Verbinden!';
+			_state := FB_TcpClient_State.ERROR_HANDLER;
+		END_IF
+
+		
+	//Es wurde eine Verbindung zum Server hergestellt	
+	FB_TcpClient_State.VERBUNDEN:
+		IF cmd.senden THEN
+			cmd.senden := FALSE;
+			status.busy := TRUE;
+			_socketSenden.pSrc := ADR(cmd.message);
+			_socketSenden.cbLen := INT_TO_UDINT(LEN(cmd.message));
+			_socketSenden.bExecute := TRUE;
+			//Das empfangen beenden
+			_socketEmpfangen(bExecute := FALSE);
+			_state := FB_TcpClient_State.SENDEN;
+		ELSIF cmd.trennen THEN
+			cmd.trennen := FALSE;
+			status.busy := TRUE;
+			_socketTrennen.bExecute := TRUE;		
+			_state := FB_TcpClient_State.TRENNEN;
+		ELSIF cmd.messageAuslesen THEN
+			cmd.messageAuslesen := FALSE;
+			status.busy := TRUE;
+			_state := FB_TcpClient_State.MESSAGE_AUSLESEN;
+		ELSIF cmd.verbinden THEN
+			cmd.verbinden := FALSE;
+		END_IF
+		
+		
+	//Es wird ein String an den Server gesendet	
+	FB_TcpClient_State.SENDEN:
+		IF NOT _socketSenden.bBusy AND NOT _socketSenden.bError THEN
+			_socketSenden.bExecute := FALSE;
+			status.busy := FALSE;
+			_state := FB_TcpClient_State.VERBUNDEN;
+		ELSIF _socketSenden.bError THEN
+			status.errorId := _socketSenden.nErrId;
+			status.errorMeldung := 'Fehler beim Senden der Nachricht!';
+			_state := FB_TcpClient_State.ERROR_HANDLER;
+		END_IF
+		
+		
+	//Es wird eine empfangene Message aus dem messagePuffer ausgelesen
+	FB_TcpClient_State.MESSAGE_AUSLESEN:
+		IF status.neueMessage THEN
+			status.message := _messagePuffer[_indexMessageOut];
+			//Den Index zum auslesen der Messages aus dem Puffer um 1 erhöhen, bzw. beim Überlauf wieder auf 0 setzen
+			_indexMessageOut := (_indexMessageOut + 1) MOD MESSAGE_PUFFER_GROESSE;
+		ELSE
+			//Ist keine neue Message vorhanden wird ein Leer-String ausgegeben 
+			status.message := '';
+		END_IF
+		status.busy := FALSE;
+		IF status.verbunden THEN
+			_state := FB_TcpClient_State.VERBUNDEN;
+		ELSE
+			_state := FB_TcpClient_State.GETRENNT;
+		END_IF
+		
+		
+	//Die Verbindung wird wieder getrennt	
+	FB_TcpClient_State.TRENNEN:
+		IF NOT _socketTrennen.bBusy AND NOT _socketTrennen.bError THEN
+			_socketTrennen.bExecute := FALSE;
+			status.verbunden := FALSE;
+			status.busy := FALSE;
+			_state := FB_TcpClient_State.GETRENNT;
+		ELSIF _socketTrennen.bError THEN
+			status.errorId := _socketTrennen.nErrId;
+			status.errorMeldung := 'Fehler beim Trennen der Verbindung!';
+			_state := FB_TcpClient_State.ERROR_HANDLER;
+		END_IF
+		
+				
+	//Error-Handler	
+	FB_TcpClient_State.ERROR_HANDLER:
+		status.busy := FALSE;
+		status.error := TRUE;
+		_socketVerbindung.bExecute := FALSE;
+		_socketSenden.bExecute := FALSE;
+		_socketEmpfangen(bExecute := FALSE);
+		_socketTrennen.bExecute := FALSE;
+		IF cmd.reset THEN
+			cmd.reset := FALSE;
+			status.error := FALSE;
+			status.errorId := 0;
+			status.errorMeldung := '';
+			IF status.verbunden THEN
+				_state := FB_TcpClient_State.VERBUNDEN;
+			ELSE
+				_state := FB_TcpClient_State.GETRENNT;
+			END_IF
+		END_IF	
+END_CASE
+
+//================================================================================
+//								Daten Empfangen
+//================================================================================
+IF status.verbunden AND _state <> FB_TcpClient_State.ERROR_HANDLER THEN
+	_socketEmpfangen( hSocket := _socketVerbindung.hSocket, cblen := PUFFER_GROESSE, pDest := ADR(_empfangsPuffer), tTimeout := T#10S, bExecute := TRUE);
+	IF NOT _socketEmpfangen.bBusy AND NOT _socketEmpfangen.bError THEN
+		_socketEmpfangen(bExecute := FALSE);
+		//Wenn Bytes empfangen wurden, dann werden sie in den messagePuffer geschrieben
+		IF _socketEmpfangen.nRecBytes > 0 THEN
+			_messagePuffer[_indexMessageIn] := Tc2_Utilities.BYTEARR_TO_MAXSTRING(_empfangsPuffer);
+			//Den Index zum eintragen der Messages in den Puffer um 1 erhöhen, bzw. beim Überlauf wieder auf 0 setzen
+			_indexMessageIn := (_indexMessageIn + 1) MOD MESSAGE_PUFFER_GROESSE;
+			//Um zu verhindern, dass der EinfügeIndex nach einem Pufferüberlauf nicht den AusleseIndex überrunden kann,
+			//wird der AusleseIndex immer um eins erhöht und somit wird die älteste Massage verworfen.
+			//Normalerweise sollte das aber natürlich nicht passieren. Daher sollte die MESSAGE_PUFFER_GROESSE ausreichend groß sein. 
+			IF _indexMessageIn = _indexMessageOut THEN
+				_indexMessageOut := (_indexMessageOut + 1) MOD MESSAGE_PUFFER_GROESSE;
+			END_IF
+			//Den empfangspuffer wieder leeren
+			FOR _n := 0 TO UINT_TO_INT(PUFFER_GROESSE-1) BY 1 DO
+				_empfangsPuffer[_n] := STRING_TO_BYTE('');
+			END_FOR
+		END_IF
+	ELSIF _socketEmpfangen.bError THEN
+		//Sollte beim versuch Nachrichten zu empfangen festgestellt werden, dass der
+		//Ziel-Server getrennt worden ist, soll die Verbindung beendet werden
+		IF _socketEmpfangen.nErrId = 32772 THEN
+			_socketTrennen(hSocket := _socketVerbindung.hSocket, tTimeout := T#5S);
+			status.verbunden := FALSE;
+			//Manche Zielserver trennen die Verbindung automtisch nachdem sie Ihre Antwort gesendet haben.
+			//In diesem Fall handelt es sich natürlich nicht um einen Fehler. Daher gibt es die Inputvariable
+			//"enableVerbindungsverlustFehler". Ist sie FALSE wird der Verlust der Verbindung nicht als Error betrachtet.
+			IF enableVerbindungsverlustFehler THEN
+				status.errorMeldung := 'Verbindung zum Zielserver verloren!';
+				status.errorId := _socketEmpfangen.nErrId;
+				_state := FB_TcpClient_State.ERROR_HANDLER;
+			ELSE
+				_socketEmpfangen(bExecute := FALSE);
+				_state := FB_TcpClient_State.GETRENNT;
+			END_IF
+		ELSE
+			status.errorMeldung := 'Fehler beim Empfangen einer Nachricht!';
+			status.errorId := _socketEmpfangen.nErrId;
+			_state := FB_TcpClient_State.ERROR_HANDLER;
+		END_IF		
+	END_IF
+END_IF
+
+//Anzeigen, wenn eine neue Message vorhanden ist
+IF _indexMessageIn <> _indexMessageOut THEN
+	status.neueMessage := TRUE;
+ELSE
+	status.neueMessage := FALSE;
+END_IF
+
+
+//Leeren des MessagPuffers
+//Dabei wird nicht das Array geleert sondern lediglich die Indices für das Einfügen und Auslesen der Messages werden gleich
+//gesetzt. Dadurch sind die Nachrichten für den Nutzer des FB´s nicht mehr auslesbar.
+IF cmd.messagePufferLeeren THEN
+	cmd.messagePufferLeeren := FALSE;
+	_indexMessageOut := _indexMessageIn;
+END_IF
+
+
+
+
+//FB`s
+_socketVerbindung(
+	tTimeout := T#5S);
+
+_socketSenden(
+	hSocket := _socketVerbindung.hSocket,
+	tTimeout := T#5S);
+
+_socketTrennen(
+	hSocket := _socketVerbindung.hSocket,
+	tTimeout := T#5S);
+
+
+
+
+]]></ST>
+    </Implementation>
+  </POU>
+</TcPlcObject>

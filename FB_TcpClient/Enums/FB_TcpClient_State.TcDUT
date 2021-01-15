@@ -1,0 +1,20 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4018.5">
+  <DUT Name="FB_TcpClient_State" Id="{4727be23-725f-4636-aecf-0f7cc85fefdb}">
+    <Declaration><![CDATA[TYPE FB_TcpClient_State :
+(
+	UNDEFINIERT := 0,
+	GETRENNT,
+	VERBINDEN,
+	VERBUNDEN,
+	SENDEN,
+	MESSAGE_AUSLESEN,
+	TRENNEN,	
+	
+	
+	ERROR_HANDLER
+);
+END_TYPE
+]]></Declaration>
+  </DUT>
+</TcPlcObject>

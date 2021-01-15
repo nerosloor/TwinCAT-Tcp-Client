@@ -1,0 +1,24 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4018.5">
+  <DUT Name="FB_TcpClient_cmd" Id="{d2f103aa-d2c2-401a-a657-f223b55f8243}">
+    <Declaration><![CDATA[TYPE FB_TcpClient_cmd :
+STRUCT
+	//Wird verbinden TRUE verbindet sich der FB auf die angegebene Adresse und Port
+	verbinden : BOOL;
+	//Den unter text angegebene String senden
+	senden : BOOL;
+	//Der zu sendende Text
+	message : STRING(255);
+	//Empfangene Message auslesen
+	messageAuslesen : BOOL;
+	//Die Verbindung trennen
+	trennen : BOOL;
+	//Verwirft alle noch nicht ausgelesenen Nachtichten
+	messagePufferLeeren : BOOL;
+	//Fehler quitieren
+	reset : BOOL;
+END_STRUCT
+END_TYPE
+]]></Declaration>
+  </DUT>
+</TcPlcObject>
