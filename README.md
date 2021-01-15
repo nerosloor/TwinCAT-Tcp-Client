@@ -12,7 +12,7 @@ Benötigte Bibliotheken:
 	-> Tc2_TcpIp
 	-> Tc2_Utilities
 	
-Benötigte Lizensen:
+Benötigte Lizenzen:
 	-> TF6310
 
 Weiteres:
