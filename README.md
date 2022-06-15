@@ -1,6 +1,4 @@
-# Twincat-Tcp-Client
-
-## Beckhoff TwinCAT 3 TCP Client
+# Beckhoff TwinCAT 3 TCP Client
 
 Dieser FB baut eine `Socketverbindung` mittels des Beckhoff eigenen Sublements `TF6310` auf.
 Dabei handelt es sich um einen TCP/IP-Server, der TCP managed.
